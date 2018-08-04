@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE NamedFieldPuns             #-}
 module Level04.Types
   ( Error (..)
   , RqType (..)
@@ -30,7 +31,7 @@ import qualified Data.Aeson.Types          as A
 
 import           Data.Time                 (UTCTime)
 
-import           Level04.DB.Types          (DBComment)
+import           Level04.DB.Types          (DBComment(..))
 
 -- Notice how we've moved these types into their own modules. It's cheap and
 -- easy to add modules to carve out components in a Haskell application. So
@@ -38,7 +39,7 @@ import           Level04.DB.Types          (DBComment)
 -- distinct functionality, or you want to carve out a particular piece of code,
 -- just spin up another module.
 import           Level04.Types.CommentText (CommentText, getCommentText, mkCommentText)
-import           Level04.Types.Error       (Error (EmptyCommentText, EmptyTopic, UnknownRoute))
+import           Level04.Types.Error       (Error (..))
 import           Level04.Types.Topic       (Topic, getTopic, mkTopic)
 
 
@@ -68,11 +69,11 @@ data Comment = Comment
 -- "topic"
 -- >>> modFieldLabel ""
 -- ""
-modFieldLabel
-  :: String
+modFieldLabel ::
+  String
   -> String
-modFieldLabel =
-  error "modFieldLabel not implemented"
+modFieldLabel s =
+  fromMaybe s (stripPrefix "comment" s)
 
 instance ToJSON Comment where
   -- This is one place where we can take advantage of our `Generic` instance.
@@ -94,11 +95,21 @@ instance ToJSON Comment where
 -- that we would be okay with showing someone. However unlikely it may be, this
 -- is a nice method for separating out the back and front end of a web app and
 -- providing greater guarantees about data cleanliness.
-fromDBComment
-  :: DBComment
+
+fromDBComment ::
+  DBComment
   -> Either Error Comment
-fromDBComment =
-  error "fromDBComment not yet implemented"
+fromDBComment dbc =
+  let DBComment { dbcommentId
+                , dbcommentTopic
+                , dbcommentBody
+                , dbcommentTime
+                } = dbc
+  in Comment
+    <$> pure (CommentId dbcommentId)
+    <*> mkTopic dbcommentTopic
+    <*> mkCommentText dbcommentBody
+    <*> pure dbcommentTime
 
 data RqType
   = AddRq Topic CommentText
@@ -109,8 +120,8 @@ data ContentType
   = PlainText
   | JSON
 
-renderContentType
-  :: ContentType
+renderContentType ::
+  ContentType
   -> ByteString
 renderContentType PlainText = "text/plain"
 renderContentType JSON      = "application/json"

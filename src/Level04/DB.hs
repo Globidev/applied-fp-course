@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-unused-matches #-}
+{-# LANGUAGE TupleSections     #-}
 module Level04.DB
   ( FirstAppDB (FirstAppDB)
   , initDB
@@ -15,6 +16,8 @@ import qualified Data.Text                          as Text
 
 import           Data.Time                          (getCurrentTime)
 
+import           Data.Bifunctor                     (bimap, first, second)
+
 import           Database.SQLite.Simple             (Connection, Query (Query))
 import qualified Database.SQLite.Simple             as Sql
 
@@ -22,7 +25,9 @@ import qualified Database.SQLite.SimpleErrors       as Sql
 import           Database.SQLite.SimpleErrors.Types (SQLiteResponse)
 
 import           Level04.Types                      (Comment, CommentText,
-                                                     Error, Topic)
+                                                     Error(..), Topic,
+                                                     getTopic, getCommentText,
+                                                     fromDBComment, mkTopic)
 
 -- ------------------------------------------------------------------------|
 -- You'll need the documentation for sqlite-simple ready for this section! |
@@ -40,20 +45,27 @@ data FirstAppDB = FirstAppDB
   }
 
 -- Quick helper to pull the connection and close it down.
-closeDB
-  :: FirstAppDB
+closeDB ::
+  FirstAppDB
   -> IO ()
 closeDB =
-  error "closeDB not implemented"
+  Sql.close . dbConn
 
 -- Given a `FilePath` to our SQLite DB file, initialise the database and ensure
 -- our Table is there by running a query to create it, if it doesn't exist
 -- already.
-initDB
-  :: FilePath
+initDB ::
+  FilePath
   -> IO ( Either SQLiteResponse FirstAppDB )
-initDB fp =
-  error "initDB not implemented"
+initDB fp = do
+  conn <- Sql.open fp
+
+  let createAction = Sql.execute_ conn createTableQ
+  queryResult <- Sql.runDBAction createAction
+
+  let app = FirstAppDB conn
+  pure (const app <$> queryResult)
+
   where
   -- Query has an `IsString` instance so string literals like this can be
   -- converted into a `Query` type when the `OverloadedStrings` language
@@ -70,46 +82,57 @@ initDB fp =
 --
 -- HINT: You can use '?' or named place-holders as query parameters. Have a look
 -- at the section on parameter substitution in sqlite-simple's documentation.
-getComments
-  :: FirstAppDB
+getComments ::
+  FirstAppDB
   -> Topic
   -> IO (Either Error [Comment])
-getComments =
-  let
-    sql = "SELECT id,topic,comment,time FROM comments WHERE topic = ?"
+getComments (FirstAppDB conn) topic = do
   -- There are several possible implementations of this function. Particularly
   -- there may be a trade-off between deciding to throw an Error if a DBComment
   -- cannot be converted to a Comment, or simply ignoring any DBComment that is
   -- not valid.
-  in
-    error "getComments not implemented"
+  (traverse fromDBComment =<<)
+    <$> safeDbRun query
+  where
+    selectCommentsQ = "SELECT id,topic,comment,time FROM comments WHERE topic = ?"
+    topicParam = Sql.Only (getTopic topic)
+    query = Sql.query conn selectCommentsQ topicParam
 
-addCommentToTopic
-  :: FirstAppDB
+addCommentToTopic ::
+  FirstAppDB
   -> Topic
   -> CommentText
   -> IO (Either Error ())
-addCommentToTopic =
-  let
-    sql = "INSERT INTO comments (topic,comment,time) VALUES (?,?,?)"
-  in
-    error "addCommentToTopic not implemented"
+addCommentToTopic (FirstAppDB conn) topic comment = do
+  safeDbRun query
+  where
+    addCommentQ = "INSERT INTO comments (topic,comment,time) VALUES (?,?,?)"
+    params = (getTopic topic, getCommentText comment,) <$> getCurrentTime
+    query = Sql.execute conn addCommentQ =<< params
 
-getTopics
-  :: FirstAppDB
+getTopics ::
+  FirstAppDB
   -> IO (Either Error [Topic])
-getTopics =
-  let
-    sql = "SELECT DISTINCT topic FROM comments"
-  in
-    error "getTopics not implemented"
+getTopics (FirstAppDB conn) =
+  (traverse (mkTopic . Sql.fromOnly) =<<)
+    <$> safeDbRun query
+  where
+    selectUniqTopicsQ = "SELECT DISTINCT topic FROM comments"
+    query = Sql.query_ conn selectUniqTopicsQ
 
-deleteTopic
-  :: FirstAppDB
+deleteTopic ::
+  FirstAppDB
   -> Topic
   -> IO (Either Error ())
-deleteTopic =
-  let
-    sql = "DELETE FROM comments WHERE topic = ?"
-  in
-    error "deleteTopic not implemented"
+deleteTopic (FirstAppDB conn) topic =
+  safeDbRun query
+  where
+    deleteTopicCommentsQ = "DELETE FROM comments WHERE topic = ?"
+    params = Sql.Only (getTopic topic)
+    query = Sql.execute conn deleteTopicCommentsQ params
+
+safeDbRun ::
+  IO a
+  -> IO (Either Error a)
+safeDbRun action =
+  first SQLError <$> Sql.runDBAction action

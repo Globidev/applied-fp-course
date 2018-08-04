@@ -4,13 +4,14 @@ module Level04.Types.Error
   , nonEmptyText
   ) where
 
-import Data.Text (Text)
+import Data.Text                          (Text)
+import Database.SQLite.SimpleErrors.Types (SQLiteResponse)
 
 data Error
   = UnknownRoute
   | EmptyCommentText
   | EmptyTopic
-  -- Add another constructor for our DB error types.
+  | SQLError SQLiteResponse
   deriving (Eq, Show)
 
 nonEmptyText

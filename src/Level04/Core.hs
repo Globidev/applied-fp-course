@@ -24,6 +24,7 @@ import           Data.Either                        (Either (Left, Right),
                                                      either)
 
 import           Data.Semigroup                     ((<>))
+import           Data.Bifunctor                     (first)
 import           Data.Text                          (Text)
 import           Data.Text.Encoding                 (decodeUtf8)
 
@@ -32,10 +33,10 @@ import qualified Data.Aeson                         as A
 
 import           Database.SQLite.SimpleErrors.Types (SQLiteResponse)
 
-import           Level04.Conf                       (Conf, firstAppConfig)
+import           Level04.Conf                       (Conf(..), firstAppConfig)
 import qualified Level04.DB                         as DB
 import           Level04.Types                      (ContentType (JSON, PlainText),
-                                                     Error (EmptyCommentText, EmptyTopic, UnknownRoute),
+                                                     Error (..),
                                                      RqType (AddRq, ListRq, ViewRq),
                                                      mkCommentText, mkTopic,
                                                      renderContentType)
@@ -48,7 +49,11 @@ data StartUpError
   deriving Show
 
 runApp :: IO ()
-runApp = error "runApp needs re-implementing"
+runApp =
+  prepareAppReqs >>=
+    either
+      (putStrLn . show)
+      (run 4242 . app)
 
 -- We need to complete the following steps to prepare our app requirements:
 --
@@ -57,59 +62,60 @@ runApp = error "runApp needs re-implementing"
 --
 -- Our application configuration is defined in Conf.hs
 --
-prepareAppReqs
-  :: IO ( Either StartUpError DB.FirstAppDB )
-prepareAppReqs =
-  error "prepareAppReqs not implemented"
+prepareAppReqs ::
+  IO ( Either StartUpError DB.FirstAppDB )
+prepareAppReqs  =
+  let (Conf fp) = firstAppConfig
+  in first DBInitErr <$> DB.initDB fp
 
 -- | Some helper functions to make our lives a little more DRY.
-mkResponse
-  :: Status
+mkResponse ::
+  Status
   -> ContentType
   -> LBS.ByteString
   -> Response
 mkResponse sts ct =
   responseLBS sts [(hContentType, renderContentType ct)]
 
-resp200
-  :: ContentType
+resp200 ::
+  ContentType
   -> LBS.ByteString
   -> Response
 resp200 =
   mkResponse status200
 
-resp404
-  :: ContentType
+resp404 ::
+  ContentType
   -> LBS.ByteString
   -> Response
 resp404 =
   mkResponse status404
 
-resp400
-  :: ContentType
+resp400 ::
+  ContentType
   -> LBS.ByteString
   -> Response
 resp400 =
   mkResponse status400
 
 -- Some new helpers for different statuses and content types
-resp500
-  :: ContentType
+resp500 ::
+  ContentType
   -> LBS.ByteString
   -> Response
 resp500 =
   mkResponse status500
 
-resp200Json
-  :: ToJSON a
+resp200Json ::
+  ToJSON a
   => a
   -> Response
 resp200Json =
   mkResponse status200 JSON . A.encode
 
 -- |
-app
-  :: DB.FirstAppDB -- ^ Add the Database record to our app so we can use it
+app ::
+  DB.FirstAppDB -- ^ Add the Database record to our app so we can use it
   -> Application
 app db rq cb = do
   rq' <- mkRequest rq
@@ -124,19 +130,19 @@ app db rq cb = do
     handleRErr :: Either Error RqType -> IO (Either Error Response)
     handleRErr = either ( pure . Left ) ( handleRequest db )
 
-handleRequest
-  :: DB.FirstAppDB
+handleRequest ::
+  DB.FirstAppDB
   -> RqType
   -> IO (Either Error Response)
-handleRequest _db (AddRq _ _) =
-  (resp200 PlainText "Success" <$) <$> error "AddRq handler not implemented"
-handleRequest _db (ViewRq _)  =
-  error "ViewRq handler not implemented"
-handleRequest _db ListRq      =
-  error "ListRq handler not implemented"
+handleRequest db (AddRq topic comment) =
+  (resp200 PlainText "Success" <$) <$> DB.addCommentToTopic db topic comment
+handleRequest db (ViewRq topic) =
+  (resp200Json <$>) <$> DB.getComments db topic
+handleRequest db ListRq      =
+  (resp200Json <$>) <$> DB.getTopics db
 
-mkRequest
-  :: Request
+mkRequest ::
+  Request
   -> IO ( Either Error RqType )
 mkRequest rq =
   case ( pathInfo rq, requestMethod rq ) of
@@ -149,27 +155,27 @@ mkRequest rq =
     -- Finally we don't care about any other requests so throw your hands in the air
     _                      -> pure ( Left UnknownRoute )
 
-mkAddRequest
-  :: Text
+mkAddRequest ::
+  Text
   -> LBS.ByteString
   -> Either Error RqType
 mkAddRequest ti c = AddRq
   <$> mkTopic ti
   <*> (mkCommentText . decodeUtf8 . LBS.toStrict) c
 
-mkViewRequest
-  :: Text
+mkViewRequest ::
+  Text
   -> Either Error RqType
 mkViewRequest =
   fmap ViewRq . mkTopic
 
-mkListRequest
-  :: Either Error RqType
+mkListRequest ::
+  Either Error RqType
 mkListRequest =
   Right ListRq
 
-mkErrorResponse
-  :: Error
+mkErrorResponse ::
+  Error
   -> Response
 mkErrorResponse UnknownRoute =
   resp404 PlainText "Unknown Route"
@@ -177,3 +183,5 @@ mkErrorResponse EmptyCommentText =
   resp400 PlainText "Empty Comment"
 mkErrorResponse EmptyTopic =
   resp400 PlainText "Empty Topic"
+mkErrorResponse (SQLError err) =
+  resp500 PlainText (LBS.pack $ show err)
