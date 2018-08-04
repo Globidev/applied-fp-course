@@ -6,7 +6,7 @@ import           Network.Wai              (Application, Request, Response,
                                            ResponseReceived, responseLBS)
 import           Network.Wai.Handler.Warp (run)
 
-import           Network.HTTP.Types       (status200)
+import           Network.HTTP.Types       (status200, hContentType)
 
 -- Our "application" will respond to ALL incoming requests with a 200
 -- status code response and the message "Hello, World!"
@@ -28,12 +28,15 @@ import           Network.HTTP.Types       (status200)
 -- what you need.
 --
 -- We've used the non-synonym version of the `Application` type below.
-app
-  :: Request
+app ::
+  Request
   -> (Response -> IO ResponseReceived)
   -> IO ResponseReceived
-app _ cb =
-  error "Application not implemented"
+app _ respond =
+  let status = status200
+      headers = [(hContentType, "text/plain")]
+      content = "Hello, World!"
+  in respond $ responseLBS status headers content
 
 -- We keep this main function here as it is useful to build your application as
 -- a library. The reasoning behind this is that when you come to do your
@@ -41,4 +44,4 @@ app _ cb =
 -- needing to worry about any initialisation code you've buried in your
 -- executable Main.hs.
 runApp :: IO ()
-runApp = run undefined undefined
+runApp = run 4242 app
