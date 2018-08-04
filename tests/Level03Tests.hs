@@ -42,6 +42,40 @@ unitTests = do
 
       -- Don't worry if you don't get all of these done. :)
 
+      describe "Add Route" $ do
+        let validAddRoute = "/gophers/add"
+            emptyTopicRoute = "//add"
+            validContent = "Gophers are awesome"
+            emptyContent = ""
+
+        it "Should return a 'Hello There!' message with a non empty comment" $
+          post validAddRoute validContent `shouldRespondWith` "Hello there!"
+        it "Should respond with an error when given an empty comment" $
+          post validAddRoute emptyContent `shouldRespondWith` 400
+        it "Should respond with an error when given an empty topic" $
+          post emptyTopicRoute emptyContent `shouldRespondWith` 400
+
+      describe "View Route" $ do
+        let validViewRoute = "/gophers/view"
+            emptyTopicRoute = "//view"
+
+        it "Should return a 'not implemented' message and a 200 status" $
+          get validViewRoute `shouldRespondWith` "View Request not implemented"
+        it "Should respond with an error when given an empty topic" $
+          get emptyTopicRoute `shouldRespondWith` 400
+
+      describe "Invalid Route" $ do
+        let invalidPaths = [ "/lmao"
+                           , "/list/wtf"
+                           , "/xd/add/lol"
+                           , "/lol/view/xd"
+                           ]
+
+        it "Should respond with a 404 when given invalid paths" $
+          let combinations = [get, flip post "data"] <*> invalidPaths
+              tests = map (`shouldRespondWith` 404) combinations
+          in foldl1 (>>) tests
+
       -- 1) The '<topic>/add' route will respond with an error when given an empty comment
       -- 2) The '<topic>/view' route will respond correctly when given a topic
       -- 3) The '<topic>/view' route will respond with an error when given an empty topic
