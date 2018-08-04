@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections     #-}
 module Level05.DB
   ( FirstAppDB (FirstAppDB)
   , initDB
@@ -30,7 +31,7 @@ import           Level05.Types                      (Comment, CommentText,
                                                      getCommentText, getTopic,
                                                      mkTopic)
 
-import           Level05.AppM                       (AppM)
+import           Level05.AppM                       (AppM, liftEither)
 
 -- We have a data type to simplify passing around the information we need to run
 -- our database queries. This also allows things to change over time without
@@ -41,14 +42,14 @@ newtype FirstAppDB = FirstAppDB
   }
 
 -- Quick helper to pull the connection and close it down.
-closeDB
-  :: FirstAppDB
+closeDB ::
+  FirstAppDB
   -> IO ()
 closeDB =
   Sql.close . dbConn
 
-initDB
-  :: FilePath
+initDB ::
+  FilePath
   -> IO ( Either SQLiteResponse FirstAppDB )
 initDB fp = Sql.runDBAction $ do
   -- Initialise the connection to the DB...
@@ -65,37 +66,53 @@ initDB fp = Sql.runDBAction $ do
     createTableQ =
       "CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY, topic TEXT, comment TEXT, time INTEGER)"
 
-runDB
-  :: (a -> Either Error b)
+runDB ::
+  (a -> Either Error b)
   -> IO a
   -> AppM b
-runDB =
-  error "Write 'runDB' to match the type signature"
+runDB f q = do
+  safeResult <- liftIO (first DBError <$> Sql.runDBAction q)
+  liftEither (f =<< safeResult)
 
-getComments
-  :: FirstAppDB
+getComments ::
+  FirstAppDB
   -> Topic
   -> AppM [Comment]
-getComments =
-  error "Copy your completed 'getComments' and refactor to match the new type signature"
+getComments (FirstAppDB conn) topic =
+  runDB (traverse fromDBComment) query
+  where
+    selectCommentsQ = "SELECT id,topic,comment,time FROM comments WHERE topic = ?"
+    topicParam = Sql.Only (getTopic topic)
+    query = Sql.query conn selectCommentsQ topicParam
 
-addCommentToTopic
-  :: FirstAppDB
+addCommentToTopic ::
+  FirstAppDB
   -> Topic
   -> CommentText
   -> AppM ()
-addCommentToTopic =
-  error "Copy your completed 'appCommentToTopic' and refactor to match the new type signature"
+addCommentToTopic (FirstAppDB conn) topic comment =
+  runDB pure query
+  where
+    addCommentQ = "INSERT INTO comments (topic,comment,time) VALUES (?,?,?)"
+    params = (getTopic topic, getCommentText comment,) <$> getCurrentTime
+    query = Sql.execute conn addCommentQ =<< params
 
-getTopics
-  :: FirstAppDB
+getTopics ::
+  FirstAppDB
   -> AppM [Topic]
-getTopics =
-  error "Copy your completed 'getTopics' and refactor to match the new type signature"
+getTopics (FirstAppDB conn) =
+  runDB (traverse (mkTopic . Sql.fromOnly)) query
+  where
+    selectUniqTopicsQ = "SELECT DISTINCT topic FROM comments"
+    query = Sql.query_ conn selectUniqTopicsQ
 
-deleteTopic
-  :: FirstAppDB
+deleteTopic ::
+  FirstAppDB
   -> Topic
   -> AppM ()
-deleteTopic =
-  error "Copy your completed 'deleteTopic' and refactor to match the new type signature"
+deleteTopic (FirstAppDB conn) topic =
+  runDB pure query
+  where
+    deleteTopicCommentsQ = "DELETE FROM comments WHERE topic = ?"
+    params = Sql.Only (getTopic topic)
+    query = Sql.execute conn deleteTopicCommentsQ params

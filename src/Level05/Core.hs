@@ -7,6 +7,7 @@ module Level05.Core
   ) where
 
 import           Control.Monad.IO.Class             (liftIO)
+import           Control.Monad.Except               (MonadError (..))
 
 import           Network.Wai                        (Application, Request,
                                                      Response, pathInfo,
@@ -22,6 +23,7 @@ import qualified Data.ByteString.Lazy               as LBS
 
 import           Data.Either                        (either)
 import           Data.Monoid                        ((<>))
+import           Data.Bifunctor                     (first)
 
 import           Data.Text                          (Text)
 import           Data.Text.Encoding                 (decodeUtf8)
@@ -53,8 +55,8 @@ runApp = do
   cfgE <- prepareAppReqs
   -- Loading the configuration can fail, so we have to take that into account now.
   case cfgE of
-    Left err   -> undefined
-    Right _cfg -> run undefined undefined
+    Left err   -> putStrLn (show err)
+    Right cfg -> run 4242 (app cfg)
 
 -- We need to complete the following steps to prepare our app requirements:
 --
@@ -63,50 +65,51 @@ runApp = do
 --
 -- Our application configuration is defined in Conf.hs
 --
-prepareAppReqs
-  :: IO ( Either StartUpError DB.FirstAppDB )
+prepareAppReqs ::
+  IO ( Either StartUpError DB.FirstAppDB )
 prepareAppReqs =
-  error "copy your prepareAppReqs from the previous level."
+  let (Conf.Conf fp) = Conf.firstAppConfig
+  in first DBInitErr <$> DB.initDB fp
 
 -- | Some helper functions to make our lives a little more DRY.
-mkResponse
-  :: Status
+mkResponse ::
+  Status
   -> ContentType
   -> LBS.ByteString
   -> Response
 mkResponse sts ct =
   responseLBS sts [(hContentType, renderContentType ct)]
 
-resp200
-  :: ContentType
+resp200 ::
+  ContentType
   -> LBS.ByteString
   -> Response
 resp200 =
   mkResponse status200
 
-resp404
-  :: ContentType
+resp404 ::
+  ContentType
   -> LBS.ByteString
   -> Response
 resp404 =
   mkResponse status404
 
-resp400
-  :: ContentType
+resp400 ::
+  ContentType
   -> LBS.ByteString
   -> Response
 resp400 =
   mkResponse status400
 
-resp500
-  :: ContentType
+resp500 ::
+  ContentType
   -> LBS.ByteString
   -> Response
 resp500 =
   mkResponse status500
 
-resp200Json
-  :: ToJSON a
+resp200Json ::
+  ToJSON a
   => a
   -> Response
 resp200Json =
@@ -115,14 +118,16 @@ resp200Json =
 
 -- How has this implementation changed, now that we have an AppM to handle the
 -- errors for our application? Could it be simplified? Can it be changed at all?
-app
-  :: DB.FirstAppDB
+app ::
+  DB.FirstAppDB
   -> Application
 app db rq cb =
-  error "app not reimplemented"
+  let logic = mkRequest rq >>= handleRequest db
+      response = either mkErrorResponse id <$> runAppM logic
+  in cb =<< response
 
-handleRequest
-  :: DB.FirstAppDB
+handleRequest ::
+  DB.FirstAppDB
   -> RqType
   -> AppM Response
 handleRequest db rqType = case rqType of
@@ -133,8 +138,8 @@ handleRequest db rqType = case rqType of
   ViewRq t  -> resp200Json <$> DB.getComments db t
   ListRq    -> resp200Json <$> DB.getTopics db
 
-mkRequest
-  :: Request
+mkRequest ::
+  Request
   -> AppM RqType
 mkRequest rq =
   liftEither =<< case ( pathInfo rq, requestMethod rq ) of
@@ -147,27 +152,27 @@ mkRequest rq =
     -- Finally we don't care about any other requests so build an Error response
     _                      -> pure ( Left UnknownRoute )
 
-mkAddRequest
-  :: Text
+mkAddRequest ::
+  Text
   -> LBS.ByteString
   -> Either Error RqType
 mkAddRequest ti c = AddRq
   <$> mkTopic ti
   <*> (mkCommentText . decodeUtf8 . LBS.toStrict) c
 
-mkViewRequest
-  :: Text
+mkViewRequest ::
+  Text
   -> Either Error RqType
 mkViewRequest =
   fmap ViewRq . mkTopic
 
-mkListRequest
-  :: Either Error RqType
+mkListRequest ::
+  Either Error RqType
 mkListRequest =
   Right ListRq
 
-mkErrorResponse
-  :: Error
+mkErrorResponse ::
+  Error
   -> Response
 mkErrorResponse UnknownRoute =
   resp404 PlainText "Unknown Route"

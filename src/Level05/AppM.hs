@@ -4,6 +4,7 @@
 module Level05.AppM where
 
 import           Control.Monad.Except   (MonadError (..))
+import           Control.Monad          (liftM2)
 import           Control.Monad.IO.Class (MonadIO (..))
 
 import           Data.Text              (Text)
@@ -67,33 +68,67 @@ runAppM (AppM m) =
   m
 
 instance Functor AppM where
-  fmap :: (a -> b) -> AppM a -> AppM b
-  fmap = error "fmap for AppM not implemented"
+  fmap ::
+    (a -> b)
+    -> AppM a
+    -> AppM b
+  fmap f (AppM m) =
+    AppM ((f <$>) <$> m)
 
 instance Applicative AppM where
-  pure :: a -> AppM a
-  pure  = error "pure for AppM not implemented"
+  pure ::
+    a
+    -> AppM a
+  pure =
+    AppM . pure . pure
 
-  (<*>) :: AppM (a -> b) -> AppM a -> AppM b
-  (<*>) = error "spaceship for AppM not implemented"
+  (<*>) ::
+    AppM (a -> b)
+    -> AppM a
+    -> AppM b
+  (<*>) (AppM f) (AppM x) =
+    AppM (liftM2 (<*>) f x)
 
 instance Monad AppM where
-  return :: a -> AppM a
-  return = error "return for AppM not implemented"
+  return ::
+    a
+    -> AppM a
+  return =
+    pure
 
-  (>>=) :: AppM a -> (a -> AppM b) -> AppM b
-  (>>=)  = error "bind for AppM not implemented"
+  (>>=) ::
+    AppM a
+    -> (a -> AppM b)
+    -> AppM b
+  (>>=) (AppM a) f =
+    AppM $ either
+      (pure . Left)
+      (runAppM . f)
+      =<< a
 
 instance MonadIO AppM where
-  liftIO :: IO a -> AppM a
-  liftIO = error "liftIO for AppM not implemented"
+  liftIO ::
+    IO a
+    -> AppM a
+  liftIO =
+    AppM . (pure <$>)
 
 instance MonadError Error AppM where
-  throwError :: Error -> AppM a
-  throwError = error "throwError for AppM not implemented"
+  throwError ::
+    Error
+    -> AppM a
+  throwError =
+    AppM . pure . Left
 
-  catchError :: AppM a -> (Error -> AppM a) -> AppM a
-  catchError = error "catchError for AppM not implemented"
+  catchError ::
+    AppM a
+    -> (Error -> AppM a)
+    -> AppM a
+  catchError (AppM a) f =
+    AppM $ either
+      (runAppM . f)
+      (pure . Right)
+      =<< a
 
 -- This is a helper function that will `lift` an Either value into our new AppM
 -- by applying `throwError` to the Left value, and using `pure` to lift the
@@ -106,4 +141,4 @@ liftEither
   :: Either Error a
   -> AppM a
 liftEither =
-  error "throwLeft not implemented"
+  either throwError pure
